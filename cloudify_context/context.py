@@ -13,7 +13,9 @@
 #    * See the License for the specific language governing permissions and
 #    * limitations under the License.
 
+import os
 import requests
+import tempfile
 from urlparse import urljoin
 
 from cloudify_common import constants
@@ -29,13 +31,13 @@ class CommonContext(object):
                  ssl_cert=None, rest_port=constants.DEFAULT_PORT,
                  rest_protocol=constants.DEFAULT_PROTOCOL,
                  trust_all=False):
-        self._rest_host = rest_host,
-        self._rest_port = rest_port,
-        self._username = username,
-        self._password = password,
-        self._tenant = tenant,
-        self._rest_protocol = rest_protocol,
-        self._ssl_cert = ssl_cert,
+        self._rest_host = rest_host
+        self._rest_port = rest_port
+        self._username = username
+        self._password = password
+        self._tenant = tenant
+        self._rest_protocol = rest_protocol
+        self._ssl_cert = ssl_cert
         self._trust_all = trust_all
         
         self._headers = get_auth_headers(username, password, tenant)
@@ -56,7 +58,7 @@ class CommonContext(object):
 
     @property
     def _manager_file_server_url(self):
-        return '{protocol}://{rest_host}:{rest_port}/resources'.format(
+        return '{protocol}://{rest_host}:{rest_port}/resources/'.format(
             protocol=self._rest_protocol,
             rest_host=self._rest_host,
             rest_port=self._rest_port
@@ -76,14 +78,27 @@ class CommonContext(object):
             )
         return self._deployment
 
-    def download_resource_from_manager(self, resource_path):
+    def get_resource_from_manager(self, resource_path):
         full_path = urljoin(self._manager_file_server_url, resource_path)
         response = requests.get(
             full_path, 
             headers=self._headers, 
             verify=self._ssl_cert
         )
-        return response.ok
+        return response.content
+
+    @staticmethod
+    def _save_resource(resource, target_path):
+        if not target_path:
+            fd, target_path = tempfile.mkstemp()
+            os.close(fd)
+        with open(target_path, 'wb') as f:
+            f.write(resource)
+        return target_path
+
+    def download_resource_from_manager(self, resource_path, target_path=None):
+        resource = self.get_resource_from_manager(resource_path)
+        return self._save_resource(resource, target_path)
 
 
 class OperationContext(CommonContext):
