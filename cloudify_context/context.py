@@ -16,9 +16,9 @@
 import os
 import requests
 import tempfile
-from urlparse import urljoin
+from posixpath import join as urljoin
 
-from cloudify_common import constants
+from cloudify_common import constants, exceptions
 
 from .utils import get_rest_client, get_auth_headers
 
@@ -58,10 +58,11 @@ class CommonContext(object):
 
     @property
     def _manager_file_server_url(self):
-        return '{protocol}://{rest_host}:{rest_port}/resources/'.format(
+        return '{protocol}://{rest_host}:{rest_port}/{resources}/'.format(
             protocol=self._rest_protocol,
             rest_host=self._rest_host,
-            rest_port=self._rest_port
+            rest_port=self._rest_port,
+            resources=constants.FILE_SERVER_RESOURCES_FOLDER
         )
 
     @property
@@ -78,14 +79,21 @@ class CommonContext(object):
             )
         return self._deployment
 
-    def get_resource_from_manager(self, resource_path):
-        full_path = urljoin(self._manager_file_server_url, resource_path)
+    def _get_resource_by_url(self, url):
         response = requests.get(
-            full_path, 
-            headers=self._headers, 
+            url,
+            headers=self._headers,
             verify=self._ssl_cert
         )
+        if not response.ok:
+            raise exceptions.HTTPException(
+                url, response.status_code, response.reason
+            )
         return response.content
+
+    def get_resource_from_manager(self, resource_path):
+        full_path = urljoin(self._manager_file_server_url, resource_path)
+        return self._get_resource_by_url(full_path)
 
     @staticmethod
     def _save_resource(resource, target_path):
@@ -98,6 +106,33 @@ class CommonContext(object):
 
     def download_resource_from_manager(self, resource_path, target_path=None):
         resource = self.get_resource_from_manager(resource_path)
+        return self._save_resource(resource, target_path)
+
+    def get_resource(self, resource_path):
+        full_path = urljoin(
+            self._manager_file_server_url,
+            constants.FILE_SERVER_DEPLOYMENTS_FOLDER,
+            self._tenant,
+            self._deployment_id,
+            resource_path
+        )
+        try:
+            return self._get_resource_by_url(full_path)
+        except exceptions.HTTPException as e:
+            if e.code != 404:
+                raise
+
+        full_path = urljoin(
+            self._manager_file_server_url,
+            constants.FILE_SERVER_BLUEPRINTS_FOLDER,
+            self._tenant,
+            self._blueprint_id,
+            resource_path
+        )
+        return self._get_resource_by_url(full_path)
+
+    def download_resource(self, resource_path, target_path=None):
+        resource = self.get_resource(resource_path)
         return self._save_resource(resource, target_path)
 
 
